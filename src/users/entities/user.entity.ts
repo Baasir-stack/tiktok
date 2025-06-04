@@ -1,4 +1,6 @@
 /* eslint-disable prettier/prettier */
+
+/* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
@@ -10,10 +12,12 @@ import {
   Index,
   CreateDateColumn,
   UpdateDateColumn,
+  OneToMany,
 } from 'typeorm';
 import { Exclude, Transform } from 'class-transformer';
 import { IsEmail, IsOptional, Length, Matches } from 'class-validator';
 import * as bcrypt from 'bcrypt';
+import { Post } from 'src/post/entities/post.entity';
 
 @Entity('users')
 export class User {
@@ -119,17 +123,51 @@ export class User {
   @Column({ nullable: true, length: 500 })
   suspensionReason: string;
 
+  // POSTS RELATIONSHIP - This is what you were missing!
+  @OneToMany(() => Post, (post) => post.user, {
+    cascade: true,
+    lazy: true, // Use lazy loading to avoid circular loading issues
+  })
+  posts: Post[];
+
+  @Column({ default: 0 })
+  @Transform(({ value }) => parseInt(value, 10))
+  postsCount: number;
+
   @BeforeInsert()
   @BeforeUpdate()
   async hashPassword() {
     if (this.password && this.provider === 'local') {
-      this.password = await bcrypt.hash(this.password, 12); // Increased from 10 to 12 for better security
+      // Prevent hashing if already hashed (starts with bcrypt prefix)
+      const isAlreadyHashed = /^\$2[aby]?\$/.test(this.password);
+      if (!isAlreadyHashed) {
+        this.password = await bcrypt.hash(this.password, 10);
+      }
     }
   }
 
   async comparePassword(plain: string): Promise<boolean> {
-    if (!this.password) return false;
-    return bcrypt.compare(plain, this.password);
+    console.log('=== Password Comparison Debug ===');
+    console.log('this.password exists:', !!this.password);
+    console.log('this.password value:', this.password);
+    console.log('plain password:', plain);
+    console.log('typeof this.password:', typeof this.password);
+
+    // If no password is stored, return false
+    if (!this.password) {
+      console.log('❌ No password stored for user');
+      return false;
+    }
+
+    try {
+      // Compare the plain password with the hashed password
+      const isMatch = await bcrypt.compare(plain, this.password);
+      console.log('✅ Password comparison result:', isMatch);
+      return isMatch;
+    } catch (error) {
+      console.log('❌ Error during password comparison:', error);
+      return false;
+    }
   }
 
   // Enhanced safe response method
