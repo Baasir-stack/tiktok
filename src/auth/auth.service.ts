@@ -74,7 +74,7 @@ export class AuthService {
 
     const user = this.createLocalUser(dto);
 
-    const tokens = await generateTokens(+user.id, user.email, this.jwtService);
+    const tokens = await generateTokens(user.id, user.email, this.jwtService);
     user.hashedRefreshToken = await bcrypt.hash(tokens.refreshToken, 10);
     user.username = User.generateUsernameFromName(user.displayName);
 
@@ -119,7 +119,7 @@ export class AuthService {
       isNewUser = true;
     }
 
-    const tokens = await generateTokens(+user.id, user.email, this.jwtService);
+    const tokens = await generateTokens(user.id, user.email, this.jwtService);
 
     user.hashedRefreshToken = await bcrypt.hash(tokens.refreshToken, 10);
     await this.userRepo.save(user);
@@ -145,12 +145,15 @@ export class AuthService {
       );
     }
 
+    console.log('User is present ', user);
+    console.log('password is present ', dto.password);
+
     const isPasswordValid = await user.comparePassword(dto.password);
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    const tokens = await generateTokens(+user.id, user.email, this.jwtService);
+    const tokens = await generateTokens(user.id, user.email, this.jwtService);
     user.hashedRefreshToken = await bcrypt.hash(tokens.refreshToken, 10);
     user.lastLoginAt = new Date();
 
@@ -312,7 +315,7 @@ export class AuthService {
 
     user.isEmailVerified = true;
 
-    const tokens = await generateTokens(+user.id, user.email, this.jwtService);
+    const tokens = await generateTokens(user.id, user.email, this.jwtService);
     user.hashedRefreshToken = await bcrypt.hash(tokens.refreshToken, 10);
 
     await this.userRepo.save(user);
