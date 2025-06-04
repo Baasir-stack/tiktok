@@ -1,12 +1,14 @@
-// src/auth/utils/jwt-utils.ts
+// src/common/utils/jwt-utils.ts
 import { JwtService } from '@nestjs/jwt';
 
 export async function generateTokens(
-  userId: number,
+  userId: string,
   email: string,
   jwtService: JwtService,
 ) {
+  console.log(userId, email);
   const payload = { sub: userId, email };
+  console.log('payload', payload);
 
   const [accessToken, refreshToken] = await Promise.all([
     jwtService.signAsync(payload, {
