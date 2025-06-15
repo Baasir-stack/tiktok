@@ -1,8 +1,3 @@
-/* eslint-disable prettier/prettier */
-
-/* eslint-disable prettier/prettier */
-
-/* eslint-disable prettier/prettier */
 // src/auth/auth.controller.ts
 import { Body, Controller, Patch, Post } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -27,7 +22,7 @@ export class AuthController {
 
   @Post('login')
   async login(@Body() dto: LoginUserDto) {
-    return this.authService.login(dto);
+    return await this.authService.login(dto);
   }
 
   @Post('google')

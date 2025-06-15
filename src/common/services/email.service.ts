@@ -2,7 +2,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resend } from 'resend';
-import { EmailTemplate, OTPEmailData, WelcomeEmailData, PasswordResetEmailData } from '../interfaces/email-template.interface';
+import {
+  EmailTemplate,
+  OTPEmailData,
+  WelcomeEmailData,
+  PasswordResetEmailData,
+} from '../interfaces/email-template.interface';
 
 @Injectable()
 export class EmailService {
@@ -21,7 +26,12 @@ export class EmailService {
     this.appUrl = this.configService.get<string>('APP_URL')!;
   }
 
-  async sendEmail({ to, subject, html, text }: EmailTemplate): Promise<boolean> {
+  async sendEmail({
+    to,
+    subject,
+    html,
+    text,
+  }: EmailTemplate): Promise<boolean> {
     try {
       const { data, error } = await this.resend.emails.send({
         from: `${this.fromName} <${this.fromEmail}>`,
@@ -44,9 +54,12 @@ export class EmailService {
     }
   }
 
-  async sendOTPVerificationEmail(to: string, data: OTPEmailData): Promise<boolean> {
+  async sendOTPVerificationEmail(
+    to: string,
+    data: OTPEmailData,
+  ): Promise<boolean> {
     const template = this.generateOTPVerificationTemplate(data);
-    
+
     return this.sendEmail({
       to,
       subject: `Verify your ${this.appName} account`,
@@ -55,9 +68,12 @@ export class EmailService {
     });
   }
 
-  async sendPasswordResetEmail(to: string, data: PasswordResetEmailData): Promise<boolean> {
+  async sendPasswordResetEmail(
+    to: string,
+    data: PasswordResetEmailData,
+  ): Promise<boolean> {
     const template = this.generatePasswordResetTemplate(data);
-    
+
     return this.sendEmail({
       to,
       subject: `Reset your ${this.appName} password`,
@@ -68,7 +84,7 @@ export class EmailService {
 
   async sendWelcomeEmail(to: string, data: WelcomeEmailData): Promise<boolean> {
     const template = this.generateWelcomeTemplate(data);
-    
+
     return this.sendEmail({
       to,
       subject: `Welcome to ${this.appName}!`,
@@ -77,7 +93,10 @@ export class EmailService {
     });
   }
 
-  private generateOTPVerificationTemplate(data: OTPEmailData): { html: string; text: string } {
+  private generateOTPVerificationTemplate(data: OTPEmailData): {
+    html: string;
+    text: string;
+  } {
     const html = `
       <!DOCTYPE html>
       <html>
@@ -144,7 +163,10 @@ export class EmailService {
     return { html, text };
   }
 
-  private generatePasswordResetTemplate(data: PasswordResetEmailData): { html: string; text: string } {
+  private generatePasswordResetTemplate(data: PasswordResetEmailData): {
+    html: string;
+    text: string;
+  } {
     const html = `
       <!DOCTYPE html>
       <html>
@@ -213,7 +235,10 @@ export class EmailService {
     return { html, text };
   }
 
-  private generateWelcomeTemplate(data: WelcomeEmailData): { html: string; text: string } {
+  private generateWelcomeTemplate(data: WelcomeEmailData): {
+    html: string;
+    text: string;
+  } {
     const html = `
       <!DOCTYPE html>
       <html>

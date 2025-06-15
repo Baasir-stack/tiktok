@@ -1,6 +1,3 @@
-/* eslint-disable prettier/prettier */
-
-/* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
@@ -18,6 +15,13 @@ import { Exclude, Transform } from 'class-transformer';
 import { IsEmail, IsOptional, Length, Matches } from 'class-validator';
 import * as bcrypt from 'bcrypt';
 import { Post } from 'src/post/entities/post.entity';
+import { Follow } from './follow.entity';
+
+export enum UserRole {
+  USER = 'user',
+  ADMIN = 'admin',
+  MODERATOR = 'moderator',
+}
 
 @Entity('users')
 export class User {
@@ -96,6 +100,14 @@ export class User {
   @Column({ default: false })
   isEmailVerified: boolean;
 
+  // User role for authorization
+  @Column({
+    type: 'enum',
+    enum: UserRole,
+    default: UserRole.USER,
+  })
+  role: UserRole;
+
   // User engagement metrics (useful for TikTok clone)
   @Column({ default: 0 })
   @Transform(({ value }) => parseInt(value, 10))
@@ -104,6 +116,19 @@ export class User {
   @Column({ default: 0 })
   @Transform(({ value }) => parseInt(value, 10))
   followersCount: number;
+
+  @OneToMany(() => Follow, (follow) => follow.follower, {
+    cascade: true,
+    lazy: true,
+  })
+  following: Follow[];
+
+  // Users that are following this user
+  @OneToMany(() => Follow, (follow) => follow.following, {
+    cascade: true,
+    lazy: true,
+  })
+  followers: Follow[];
 
   @Column({ default: 0 })
   @Transform(({ value }) => parseInt(value, 10))
@@ -138,10 +163,21 @@ export class User {
   @BeforeUpdate()
   async hashPassword() {
     if (this.password && this.provider === 'local') {
-      // Prevent hashing if already hashed (starts with bcrypt prefix)
-      const isAlreadyHashed = /^\$2[aby]?\$/.test(this.password);
+      // More comprehensive bcrypt hash detection
+      // Bcrypt hashes are always 60 characters long and start with $2a$, $2b$, $2x$, or $2y$
+      const isAlreadyHashed = /^\$2[abxy]\$\d+\$.{53}$/.test(this.password);
+
+      console.log('=== Hash Password Debug ===');
+      console.log('Password:', this.password);
+      console.log('Is already hashed:', isAlreadyHashed);
+      console.log('Password length:', this.password.length);
+
       if (!isAlreadyHashed) {
+        console.log('Hashing password...');
         this.password = await bcrypt.hash(this.password, 10);
+        console.log('Password hashed successfully');
+      } else {
+        console.log('Password already hashed, skipping...');
       }
     }
   }
@@ -202,6 +238,16 @@ export class User {
   // Check if user can be followed/interacted with
   canInteract(): boolean {
     return this.isActive && !this.suspendedAt;
+  }
+
+  // Check if user is admin
+  isAdmin(): boolean {
+    return this.role === UserRole.ADMIN;
+  }
+
+  // Check if user is moderator or admin
+  isModerator(): boolean {
+    return this.role === UserRole.MODERATOR || this.role === UserRole.ADMIN;
   }
 
   // Generate a unique username suggestion

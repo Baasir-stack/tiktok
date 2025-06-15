@@ -18,16 +18,17 @@ import { CommonModule } from 'src/common/common.module';
 import { Otp } from './entities/otp.entity';
 
 @Module({
-  imports:[ TypeOrmModule.forFeature([User,Otp]),
-  UsersModule, PassportModule.register({ defaultStrategy: 'local' }),
+  imports: [
+    TypeOrmModule.forFeature([User, Otp]),
+    UsersModule,
+    PassportModule.register({ defaultStrategy: 'local' }),
     ConfigModule.forFeature(jwtConfig),
     ConfigModule.forFeature(refreshJwtConfig),
     ConfigModule.forFeature(googleOauthConfig),
-  JwtModule.registerAsync(jwtConfig.asProvider()),
-  CommonModule
- 
-],
+    JwtModule.registerAsync(jwtConfig.asProvider()),
+    CommonModule,
+  ],
   controllers: [AuthController],
-  providers: [AuthService,LocalStrategy,JwtStrategy,GoogleStrategy]
+  providers: [AuthService, LocalStrategy, JwtStrategy, GoogleStrategy],
 })
 export class AuthModule {}

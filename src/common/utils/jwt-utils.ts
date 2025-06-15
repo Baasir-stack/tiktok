@@ -4,10 +4,11 @@ import { JwtService } from '@nestjs/jwt';
 export async function generateTokens(
   userId: string,
   email: string,
+  role: string, // Added role parameter
   jwtService: JwtService,
 ) {
-  console.log(userId, email);
-  const payload = { sub: userId, email };
+  console.log(userId, email, role);
+  const payload = { sub: userId, email, role }; // Include role in payload
   console.log('payload', payload);
 
   const [accessToken, refreshToken] = await Promise.all([

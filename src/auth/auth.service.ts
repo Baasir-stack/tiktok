@@ -1,14 +1,5 @@
-/* eslint-disable prettier/prettier */
-
-/* eslint-disable prettier/prettier */
-
-/* eslint-disable prettier/prettier */
-
-/* eslint-disable prettier/prettier */
-
-/* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable prettier/prettier */
+
 // src/auth/auth.service.ts
 import {
   Injectable,
@@ -32,6 +23,7 @@ import { ConfigService } from '@nestjs/config';
 import { LoginUserDto } from './dto/login-user.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { DataSource } from 'typeorm';
 
 @Injectable()
 export class AuthService {
@@ -42,6 +34,7 @@ export class AuthService {
 
     @InjectRepository(Otp)
     private readonly otpRepo: Repository<Otp>,
+    private readonly dataSource: DataSource,
 
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
@@ -57,9 +50,7 @@ export class AuthService {
 
     if (existingUser) {
       if (!existingUser.password && existingUser.provider === 'google') {
-        // Google registered user trying to register with email/password
         await this.handleGoogleUserOtpFlow(dto.email);
-
         return {
           message: 'Email registered with Google. OTP sent for verification.',
           data: {
@@ -72,13 +63,44 @@ export class AuthService {
       }
     }
 
-    const user = this.createLocalUser(dto);
+    // Create user without transaction first
+    const user = this.userRepo.create({
+      ...dto,
+      username: User.generateUsernameFromName(dto.displayName),
+      provider: 'local',
+      isEmailVerified: false,
+      isVerified: false,
+      isActive: true,
+    });
 
-    const tokens = await generateTokens(user.id, user.email, this.jwtService);
-    user.hashedRefreshToken = await bcrypt.hash(tokens.refreshToken, 10);
-    user.username = User.generateUsernameFromName(user.displayName);
+    console.log('=== Registration Debug ===');
+    console.log('User before save:', {
+      email: user.email,
+      hasPassword: !!user.password,
+      provider: user.provider,
+    });
 
-    const savedUser = await this.userRepo.save(user); // triggers hashPassword()
+    // Save user first (this will hash the password)
+    const savedUser = await this.userRepo.save(user);
+
+    console.log('User after save:', {
+      id: savedUser.id,
+      email: savedUser.email,
+      hasPassword: !!savedUser.password,
+      passwordLength: savedUser.password?.length,
+    });
+
+    // Generate tokens
+    const tokens = await generateTokens(
+      savedUser.id,
+      savedUser.email,
+      savedUser.role,
+      this.jwtService,
+    );
+
+    // Update refresh token separately
+    savedUser.hashedRefreshToken = await bcrypt.hash(tokens.refreshToken, 10);
+    await this.userRepo.save(savedUser);
 
     return {
       message: 'Registration successful',
@@ -119,7 +141,12 @@ export class AuthService {
       isNewUser = true;
     }
 
-    const tokens = await generateTokens(user.id, user.email, this.jwtService);
+    const tokens = await generateTokens(
+      user.id,
+      user.email,
+      user.role,
+      this.jwtService,
+    );
 
     user.hashedRefreshToken = await bcrypt.hash(tokens.refreshToken, 10);
     await this.userRepo.save(user);
@@ -145,19 +172,38 @@ export class AuthService {
       );
     }
 
-    console.log('User is present ', user);
-    console.log('password is present ', dto.password);
+    console.log('=== Login Debug ===');
+    console.log('User found:', {
+      id: user.id,
+      email: user.email,
+      hasPassword: !!user.password,
+      passwordLength: user.password?.length,
+      provider: user.provider,
+    });
+    console.log('Input password length:', dto.password?.length);
 
     const isPasswordValid = await user.comparePassword(dto.password);
+    console.log('Password validation result:', isPasswordValid);
+
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    const tokens = await generateTokens(user.id, user.email, this.jwtService);
-    user.hashedRefreshToken = await bcrypt.hash(tokens.refreshToken, 10);
-    user.lastLoginAt = new Date();
+    const tokens = await generateTokens(
+      user.id,
+      user.email,
+      user.role,
+      this.jwtService,
+    );
 
-    await this.userRepo.save(user);
+    // Update user fields without triggering password hash
+    await this.userRepo.update(user.id, {
+      hashedRefreshToken: await bcrypt.hash(tokens.refreshToken, 10),
+      lastLoginAt: new Date(),
+    });
+
+    // Get fresh user data for response
+    await this.userRepo.findOne({ where: { id: user.id } });
 
     return {
       message: 'Login successful',
@@ -315,7 +361,12 @@ export class AuthService {
 
     user.isEmailVerified = true;
 
-    const tokens = await generateTokens(user.id, user.email, this.jwtService);
+    const tokens = await generateTokens(
+      user.id,
+      user.email,
+      user.role,
+      this.jwtService,
+    );
     user.hashedRefreshToken = await bcrypt.hash(tokens.refreshToken, 10);
 
     await this.userRepo.save(user);

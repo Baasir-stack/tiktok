@@ -1,13 +1,12 @@
 /* eslint-disable prettier/prettier */
- 
+
 /* eslint-disable prettier/prettier */
 // src/config/typeorm.config.ts
-
 
 import { TypeOrmModuleAsyncOptions } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 
-export  const typeOrmConfig: TypeOrmModuleAsyncOptions = {
+export const typeOrmConfig: TypeOrmModuleAsyncOptions = {
   inject: [ConfigService],
   useFactory: (configService: ConfigService) => ({
     type: 'postgres',
@@ -23,4 +22,3 @@ export  const typeOrmConfig: TypeOrmModuleAsyncOptions = {
     },
   }),
 };
-
