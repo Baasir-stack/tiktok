@@ -163,12 +163,48 @@ export class AuthService {
   }
 
   async login(dto: LoginUserDto) {
-    const user = await this.findUserByEmail(dto.email);
-    if (!user) throw new UnauthorizedException('Invalid email or password');
+    // Validate that either email or username is provided (backup validation)
+    if (!dto.email && !dto.username) {
+      throw new BadRequestException('Please provide either email or username');
+    }
+
+    if (dto.email && dto.username) {
+      throw new BadRequestException(
+        'Please provide either email or username, not both',
+      );
+    }
+
+    let user: User | null = null;
+
+    // Find user by email or username
+    try {
+      if (dto.email) {
+        user = await this.findUserByEmail(dto.email);
+      } else if (dto.username) {
+        user = await this.findUserByUsername(dto.username);
+      }
+    } catch (error) {
+      console.error('Error finding user:', error);
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    if (!user) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Check if user is active
+    if (!user.isActive) {
+      throw new UnauthorizedException('Account is deactivated');
+    }
+
+    // Check if user is suspended
+    if (user.suspendedAt) {
+      throw new UnauthorizedException('Account is suspended');
+    }
 
     if (user.provider !== 'local') {
       throw new BadRequestException(
-        `This email is registered via ${user.provider}. Please use ${user.provider} login.`,
+        `This account is registered via ${user.provider}. Please use ${user.provider} login.`,
       );
     }
 
@@ -176,9 +212,12 @@ export class AuthService {
     console.log('User found:', {
       id: user.id,
       email: user.email,
+      username: user.username,
       hasPassword: !!user.password,
       passwordLength: user.password?.length,
       provider: user.provider,
+      isActive: user.isActive,
+      suspendedAt: user.suspendedAt,
     });
     console.log('Input password length:', dto.password?.length);
 
@@ -186,7 +225,7 @@ export class AuthService {
     console.log('Password validation result:', isPasswordValid);
 
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid email or password');
+      throw new UnauthorizedException('Invalid credentials');
     }
 
     const tokens = await generateTokens(
@@ -196,14 +235,10 @@ export class AuthService {
       this.jwtService,
     );
 
-    // Update user fields without triggering password hash
     await this.userRepo.update(user.id, {
       hashedRefreshToken: await bcrypt.hash(tokens.refreshToken, 10),
       lastLoginAt: new Date(),
     });
-
-    // Get fresh user data for response
-    await this.userRepo.findOne({ where: { id: user.id } });
 
     return {
       message: 'Login successful',
@@ -283,6 +318,9 @@ export class AuthService {
   // Helper: Find user by email
   private async findUserByEmail(email: string) {
     return this.userRepo.findOne({ where: { email } });
+  }
+  private async findUserByUsername(username: string) {
+    return this.userRepo.findOne({ where: { username } });
   }
 
   // Helper: Handle OTP generation and sending for Google registered users

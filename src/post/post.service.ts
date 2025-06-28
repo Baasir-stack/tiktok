@@ -677,7 +677,6 @@ export class PostService {
   ): Promise<
     ServiceResponse<{
       posts: PostResponse[];
-      user: any;
       pagination: {
         page: number;
         limit: number;
@@ -714,7 +713,6 @@ export class PostService {
         message: 'User posts retrieved successfully',
         data: {
           posts: posts.map((post) => this.formatPostResponse(post)),
-          user: user.toPublicProfile(),
           pagination: {
             page,
             limit,
