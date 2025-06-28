@@ -8,6 +8,7 @@ import { UploadModule } from 'src/upload/upload.module';
 import { Like } from './entities/like.entity';
 import { TempVideoUpload } from './entities/temp-video-upload.entity';
 import { User } from 'src/users/entities/user.entity';
+import { Follow } from 'src/users/entities/follow.entity';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { User } from 'src/users/entities/user.entity';
       Like,
       TempVideoUpload,
       User, // Add User entity here
+      Follow,
     ]),
     UploadModule,
   ],

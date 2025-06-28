@@ -1,7 +1,6 @@
-/* eslint-disable prettier/prettier */
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Resend } from 'resend';
+import * as sgMail from '@sendgrid/mail';
 import {
   EmailTemplate,
   OTPEmailData,
@@ -12,14 +11,18 @@ import {
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private resend: Resend;
   private fromEmail: string;
   private fromName: string;
   private appName: string;
   private appUrl: string;
 
   constructor(private configService: ConfigService) {
-    this.resend = new Resend(this.configService.get<string>('RESEND_API_KEY'));
+    const apiKey = this.configService.get<string>('SENDGRID_API_KEY');
+    if (!apiKey) {
+      throw new Error('SENDGRID_API_KEY is required');
+    }
+
+    sgMail.setApiKey(apiKey);
     this.fromEmail = this.configService.get<string>('FROM_EMAIL')!;
     this.fromName = this.configService.get<string>('FROM_NAME')!;
     this.appName = this.configService.get<string>('APP_NAME')!;
@@ -33,20 +36,22 @@ export class EmailService {
     text,
   }: EmailTemplate): Promise<boolean> {
     try {
-      const { data, error } = await this.resend.emails.send({
-        from: `${this.fromName} <${this.fromEmail}>`,
-        to: [to],
+      const msg = {
+        to,
+        from: {
+          email: this.fromEmail,
+          name: this.fromName,
+        },
         subject,
-        html,
         text,
-      });
+        html,
+      };
 
-      if (error) {
-        this.logger.error(`Failed to send email to ${to}:`, error);
-        return false;
-      }
+      const response = await sgMail.send(msg);
 
-      this.logger.log(`Email sent successfully to ${to}. ID: ${data?.id}`);
+      this.logger.log(
+        `Email sent successfully to ${to}. Status: ${response[0].statusCode}`,
+      );
       return true;
     } catch (error) {
       this.logger.error(`Error sending email to ${to}:`, error);

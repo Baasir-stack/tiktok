@@ -1,12 +1,4 @@
 /* eslint-disable prettier/prettier */
-
-/* eslint-disable prettier/prettier */
-
-/* eslint-disable prettier/prettier */
-
-/* eslint-disable prettier/prettier */
-
-/* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable prettier/prettier */
 // src/post/post.service.ts
@@ -19,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Post, PostStatus } from './entities/post.entity';
-import { Repository, MoreThan } from 'typeorm';
+import { Repository, MoreThan, In } from 'typeorm';
 import { CreatePostMetadataDto } from './dto/create-post-metadata.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { User } from 'src/users/entities/user.entity';
@@ -35,8 +27,13 @@ import {
 } from 'src/common/interfaces/posts.interface';
 import { UploadService } from 'src/common/services/upload.service';
 import { promises as fs } from 'fs';
+import { Follow } from 'src/users/entities/follow.entity';
 
-// Define response types for better type safety
+// Define standardized response interface
+interface ServiceResponse<T = any> {
+  message: string;
+  data: T;
+}
 
 @Injectable()
 export class PostService {
@@ -45,6 +42,8 @@ export class PostService {
     private postRepo: Repository<Post>,
     @InjectRepository(User)
     private userRepo: Repository<User>,
+    @InjectRepository(Follow)
+    private followRepo: Repository<Follow>,
     @InjectRepository(Like)
     private likeRepo: Repository<Like>,
     @InjectRepository(TempVideoUpload)
@@ -56,7 +55,7 @@ export class PostService {
   async uploadVideoOnly(
     user: User,
     file: Express.Multer.File,
-  ): Promise<TempVideoUploadResponse> {
+  ): Promise<ServiceResponse<TempVideoUploadResponse>> {
     if (!file) {
       console.log('file not received in service');
       throw new BadRequestException('Video file is required');
@@ -77,10 +76,6 @@ export class PostService {
         videoUrl: uploadResult.url,
         publicId: uploadResult.public_id,
         localFilePath: file.path,
-        // You can add video metadata extraction here if needed
-        // videoDuration: await this.extractDuration(file),
-        // videoWidth: await this.extractWidth(file),
-        // etc.
         status: TempVideoStatus.UPLOADED,
       });
 
@@ -88,13 +83,18 @@ export class PostService {
 
       console.log('savedTempVideo', savedTempVideo);
 
-      // Return only the necessary fields
-      return {
+      // Return formatted response
+      const responseData: TempVideoUploadResponse = {
         id: savedTempVideo.id,
         videoUrl: savedTempVideo.videoUrl,
         thumbnailUrl: savedTempVideo.thumbnailUrl,
         videoDuration: savedTempVideo.videoDuration,
         createdAt: savedTempVideo.createdAt,
+      };
+
+      return {
+        message: 'Video uploaded successfully',
+        data: responseData,
       };
     } catch (err) {
       if (file.path) {
@@ -116,7 +116,7 @@ export class PostService {
   async createPostWithUploadedVideo(
     user: User,
     dto: CreatePostMetadataDto,
-  ): Promise<PostResponse> {
+  ): Promise<ServiceResponse<PostResponse>> {
     // Validate temp video exists and belongs to user
     const tempVideo = await this.tempVideoRepo.findOne({
       where: {
@@ -135,24 +135,13 @@ export class PostService {
     }
 
     // Check if video hasn't expired
-    // if (new Date() > tempVideo.expiresAt) {
-    //    // CLEANUP EXPIRED VIDEO - Delete from all locations
-    //   await this.tempVideoRepo.update(tempVideo.id, {
-    //     status: TempVideoStatus.EXPIRED,
-    //   });
-    //   throw new BadRequestException(
-    //     'Video has expired. Please upload video again.',
-    //   );
-    // }
-
-    // Check if video hasn't expired
     if (new Date() > tempVideo.expiresAt) {
       // CLEANUP EXPIRED VIDEO - Delete from all locations
       try {
         // 1. Delete from Cloudinary
         await this.uploadService.deleteAsset(tempVideo.publicId, 'video');
 
-        // 2. Delete local file if it exists (optional - depends on your multer config)
+        // 2. Delete local file if it exists
         if (tempVideo.localFilePath) {
           try {
             await fs.unlink(tempVideo.localFilePath);
@@ -162,7 +151,6 @@ export class PostService {
               `Failed to delete local file: ${tempVideo.localFilePath}`,
               fileErr,
             );
-            // Don't throw - file might already be deleted
           }
         }
 
@@ -175,7 +163,6 @@ export class PostService {
           `Failed to cleanup expired video ${tempVideo.id}:`,
           cleanupErr,
         );
-        // Still update status even if cleanup fails
         await this.tempVideoRepo.update(tempVideo.id, {
           status: TempVideoStatus.EXPIRED,
         });
@@ -215,14 +202,18 @@ export class PostService {
         status: TempVideoStatus.USED,
       });
 
-      // Delete the temporary video from Cloudinary using the existing deleteAsset method
-      await this.uploadService.deleteAsset(tempVideo.publicId, 'video');
+      // Delete the temporary video from Cloudinary (optional - you might want to keep it)
+      // await this.uploadService.deleteAsset(tempVideo.publicId, 'video');
 
       // Update user's posts count
       await this.userRepo.increment({ id: user.id }, 'postsCount', 1);
 
-      return this.formatPostResponse(savedPost);
+      return {
+        message: 'Post created successfully',
+        data: this.formatPostResponse(savedPost),
+      };
     } catch (err) {
+      console.error('Failed to create post:', err);
       throw new InternalServerErrorException('Failed to create post');
     }
   }
@@ -232,7 +223,7 @@ export class PostService {
     user: User,
     dto: CreatePostMetadataDto,
     file: Express.Multer.File,
-  ): Promise<PostResponse> {
+  ): Promise<ServiceResponse<PostResponse>> {
     if (!file) {
       throw new BadRequestException('Video file is required');
     }
@@ -259,14 +250,21 @@ export class PostService {
       const savedPost = await this.postRepo.save(newPost);
       await this.userRepo.increment({ id: user.id }, 'postsCount', 1);
 
-      return this.formatPostResponse(savedPost);
+      return {
+        message: 'Post created successfully',
+        data: this.formatPostResponse(savedPost),
+      };
     } catch (err) {
+      console.error('Failed to create post:', err);
       throw new InternalServerErrorException('Failed to create post');
     }
   }
 
   // Discard uploaded video
-  async discardUploadedVideo(tempId: string, userId: string): Promise<void> {
+  async discardUploadedVideo(
+    tempId: string,
+    userId: string,
+  ): Promise<ServiceResponse<null>> {
     const tempVideo = await this.tempVideoRepo.findOne({
       where: {
         id: tempId,
@@ -287,6 +285,11 @@ export class PostService {
       await this.tempVideoRepo.update(tempId, {
         status: TempVideoStatus.DISCARDED,
       });
+
+      return {
+        message: 'Video discarded successfully',
+        data: null,
+      };
     } catch (err) {
       // Log error but don't throw - cleanup job will handle it
       console.error('Failed to delete video from cloudinary:', err);
@@ -295,6 +298,231 @@ export class PostService {
       await this.tempVideoRepo.update(tempId, {
         status: TempVideoStatus.DISCARDED,
       });
+
+      return {
+        message: 'Video discarded successfully',
+        data: null,
+      };
+    }
+  }
+
+  // For You Feed - Personalized algorithm-based feed
+  async getForYouFeed(
+    userId: string,
+    page: number = 1,
+    limit: number = 10,
+  ): Promise<
+    ServiceResponse<{
+      posts: PostResponse[];
+      pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+      };
+    }>
+  > {
+    const skip = (page - 1) * limit;
+
+    try {
+      // Get user's interaction history for personalization
+      const userLikes = await this.likeRepo.find({
+        where: { userId },
+        relations: ['post'],
+        take: 100,
+      });
+
+      const userInteractedPosts = userLikes
+        .map((like) => like.post)
+        .filter(Boolean);
+
+      // Extract hashtags from user's interactions
+      const interactedHashtags = new Set<string>();
+      userInteractedPosts.forEach((post) => {
+        if (post?.hashtags) {
+          post.hashtags.forEach((tag) => interactedHashtags.add(tag));
+        }
+      });
+
+      // Get posts from followed users
+      const followedUsers = await this.followRepo.find({
+        where: { followerId: userId },
+        select: ['followingId'],
+      });
+      const followedUserIds = followedUsers.map((f) => f.followingId);
+
+      const queryBuilder = this.postRepo
+        .createQueryBuilder('post')
+        .leftJoinAndSelect('post.user', 'user')
+        .where('post.isPublic = :isPublic', { isPublic: true })
+        .andWhere('post.status = :status', { status: PostStatus.PUBLISHED })
+        .andWhere('post.userId != :userId', { userId });
+
+      // Algorithm scoring
+      let algorithmScore = `(
+        CASE 
+          WHEN post.userId IN (:...followedUserIds) THEN 50
+          ELSE 0
+        END +
+        (post.likesCount * 0.4 + post.commentsCount * 0.6 + post.sharesCount * 1.0) +
+        (86400 - EXTRACT(EPOCH FROM (NOW() - post.createdAt)) / 86400) * 10
+      )`;
+
+      // Add hashtag scoring if user has interacted hashtags
+      if (interactedHashtags.size > 0) {
+        const hashtagConditions = Array.from(interactedHashtags)
+          .map((tag, index) => {
+            queryBuilder.setParameter(`hashtag${index}`, tag);
+            return `(:hashtag${index} = ANY(post.hashtags))`;
+          })
+          .join(' OR ');
+
+        algorithmScore = `(
+          CASE 
+            WHEN post.userId IN (:...followedUserIds) THEN 50
+            ELSE 0
+          END +
+          CASE 
+            WHEN ${hashtagConditions} THEN 30
+            ELSE 0
+          END +
+          (post.likesCount * 0.4 + post.commentsCount * 0.6 + post.sharesCount * 1.0) +
+          (86400 - EXTRACT(EPOCH FROM (NOW() - post.createdAt)) / 86400) * 10
+        )`;
+      }
+
+      queryBuilder
+        .addSelect(algorithmScore, 'algorithm_score')
+        .orderBy('algorithm_score', 'DESC')
+        .addOrderBy('post.createdAt', 'DESC')
+        .skip(skip)
+        .take(limit);
+
+      if (followedUserIds.length > 0) {
+        queryBuilder.setParameter('followedUserIds', followedUserIds);
+      }
+
+      const [posts, total] = await queryBuilder.getManyAndCount();
+
+      // Track views
+      if (posts.length > 0) {
+        const postIds = posts.map((post) => post.id);
+        await this.postRepo
+          .createQueryBuilder()
+          .update(Post)
+          .set({
+            viewsCount: () => 'viewsCount + 1',
+            lastInteractionAt: new Date(),
+          })
+          .where('id IN (:...postIds)', { postIds })
+          .execute();
+      }
+
+      return {
+        message: 'For you feed retrieved successfully',
+        data: {
+          posts: posts.map((post) => this.formatPostResponse(post)),
+          pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(total / limit),
+          },
+        },
+      };
+    } catch (err) {
+      console.error('Failed to get for you feed:', err);
+      throw new InternalServerErrorException('Failed to retrieve for you feed');
+    }
+  }
+
+  // Following Feed - Posts from users you follow
+  async getFollowingFeed(
+    userId: string,
+    page: number = 1,
+    limit: number = 10,
+  ): Promise<
+    ServiceResponse<{
+      posts: PostResponse[];
+      pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+      };
+    }>
+  > {
+    const skip = (page - 1) * limit;
+
+    try {
+      // Get followed users
+      const followedUsers = await this.followRepo.find({
+        where: { followerId: userId },
+        select: ['followingId'],
+      });
+
+      if (followedUsers.length === 0) {
+        return {
+          message: 'Following feed retrieved successfully',
+          data: {
+            posts: [],
+            pagination: {
+              page,
+              limit,
+              total: 0,
+              totalPages: 0,
+            },
+          },
+        };
+      }
+
+      const followedUserIds = followedUsers.map((f) => f.followingId);
+
+      const [posts, total] = await this.postRepo.findAndCount({
+        where: {
+          userId: In(followedUserIds),
+          isPublic: true,
+          status: PostStatus.PUBLISHED,
+        },
+        relations: ['user'],
+        order: {
+          createdAt: 'DESC',
+        },
+        skip,
+        take: limit,
+      });
+
+      // Track views
+      if (posts.length > 0) {
+        const postIds = posts.map((post) => post.id);
+        await this.postRepo
+          .createQueryBuilder()
+          .update(Post)
+          .set({
+            viewsCount: () => 'viewsCount + 1',
+            lastInteractionAt: new Date(),
+          })
+          .where('id IN (:...postIds)', { postIds })
+          .execute();
+      }
+
+      return {
+        message: 'Following feed retrieved successfully',
+        data: {
+          posts: posts.map((post) => this.formatPostResponse(post)),
+          pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(total / limit),
+          },
+        },
+      };
+    } catch (err) {
+      console.error('Failed to get following feed:', err);
+      throw new InternalServerErrorException(
+        'Failed to retrieve following feed',
+      );
     }
   }
 
@@ -314,6 +542,19 @@ export class PostService {
           // Delete from cloudinary
           await this.uploadService.deleteAsset(video.publicId, 'video');
 
+          // Delete local file if it exists
+          if (video.localFilePath) {
+            try {
+              await fs.unlink(video.localFilePath);
+              console.log(`Deleted local file: ${video.localFilePath}`);
+            } catch (fileErr) {
+              console.warn(
+                `Failed to delete local file: ${video.localFilePath}`,
+                fileErr,
+              );
+            }
+          }
+
           // Delete from database
           await this.tempVideoRepo.delete(video.id);
         } catch (err) {
@@ -327,71 +568,105 @@ export class PostService {
     }
   }
 
-  // Rest of the methods remain the same...
   async getPublicPosts(
     page: number = 1,
     limit: number = 10,
     hashtag?: string,
     viewerId?: string,
-  ) {
+  ): Promise<
+    ServiceResponse<{
+      posts: PostResponse[];
+      pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+      };
+    }>
+  > {
     const skip = (page - 1) * limit;
 
-    const queryBuilder = this.postRepo
-      .createQueryBuilder('post')
-      .leftJoinAndSelect('post.user', 'user')
-      .where('post.isPublic = :isPublic', { isPublic: true })
-      .andWhere('post.status = :status', { status: PostStatus.PUBLISHED })
-      .orderBy('post.createdAt', 'DESC')
-      .skip(skip)
-      .take(limit);
+    try {
+      const queryBuilder = this.postRepo
+        .createQueryBuilder('post')
+        .leftJoinAndSelect('post.user', 'user')
+        .where('post.isPublic = :isPublic', { isPublic: true })
+        .andWhere('post.status = :status', { status: PostStatus.PUBLISHED })
+        .orderBy('post.createdAt', 'DESC')
+        .skip(skip)
+        .take(limit);
 
-    if (hashtag) {
-      queryBuilder.andWhere(':hashtag = ANY(post.hashtags)', { hashtag });
+      if (hashtag) {
+        queryBuilder.andWhere(':hashtag = ANY(post.hashtags)', { hashtag });
+      }
+
+      const [posts, total] = await queryBuilder.getManyAndCount();
+
+      if (viewerId && posts.length > 0) {
+        const postIds = posts.map((post) => post.id);
+        await this.postRepo
+          .createQueryBuilder()
+          .update(Post)
+          .set({ viewsCount: () => 'viewsCount + 1' })
+          .where('id IN (:...postIds)', { postIds })
+          .execute();
+      }
+
+      return {
+        message: 'Public posts retrieved successfully',
+        data: {
+          posts: posts.map((post) => this.formatPostResponse(post)),
+          pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(total / limit),
+          },
+        },
+      };
+    } catch (err) {
+      console.error('Failed to get public posts:', err);
+      throw new InternalServerErrorException('Failed to retrieve public posts');
     }
-
-    const [posts, total] = await queryBuilder.getManyAndCount();
-
-    if (viewerId && posts.length > 0) {
-      const postIds = posts.map((post) => post.id);
-      await this.postRepo
-        .createQueryBuilder()
-        .update(Post)
-        .set({ viewsCount: () => 'viewsCount + 1' })
-        .where('id IN (:...postIds)', { postIds })
-        .execute();
-    }
-
-    return {
-      posts: posts.map((post) => this.formatPostResponse(post)),
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
   }
 
-  async getPostById(id: string, viewerId?: string): Promise<PostResponse> {
-    const post = await this.postRepo.findOne({
-      where: { id },
-      relations: ['user'],
-    });
+  async getPostById(
+    id: string,
+    viewerId?: string,
+  ): Promise<ServiceResponse<PostResponse>> {
+    try {
+      const post = await this.postRepo.findOne({
+        where: { id },
+        relations: ['user'],
+      });
 
-    if (!post) {
-      throw new NotFoundException('Post not found');
+      if (!post) {
+        throw new NotFoundException('Post not found');
+      }
+
+      if (!post.isPublic && (!viewerId || post.userId !== viewerId)) {
+        throw new ForbiddenException('Post is private');
+      }
+
+      if (viewerId && post.userId !== viewerId) {
+        await this.postRepo.increment({ id }, 'viewsCount', 1);
+        post.viewsCount += 1;
+      }
+
+      return {
+        message: 'Post retrieved successfully',
+        data: this.formatPostResponse(post),
+      };
+    } catch (err) {
+      if (
+        err instanceof NotFoundException ||
+        err instanceof ForbiddenException
+      ) {
+        throw err;
+      }
+      console.error('Failed to get post by id:', err);
+      throw new InternalServerErrorException('Failed to retrieve post');
     }
-
-    if (!post.isPublic && (!viewerId || post.userId !== viewerId)) {
-      throw new ForbiddenException('Post is private');
-    }
-
-    if (viewerId && post.userId !== viewerId) {
-      await this.postRepo.increment({ id }, 'viewsCount', 1);
-      post.viewsCount += 1;
-    }
-
-    return this.formatPostResponse(post);
   }
 
   async getUserPosts(
@@ -399,40 +674,62 @@ export class PostService {
     page: number = 1,
     limit: number = 10,
     viewerId?: string,
-  ) {
+  ): Promise<
+    ServiceResponse<{
+      posts: PostResponse[];
+      user: any;
+      pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+      };
+    }>
+  > {
     const skip = (page - 1) * limit;
 
-    const user = await this.userRepo.findOne({ where: { id: userId } });
-    if (!user) {
-      throw new NotFoundException('User not found');
+    try {
+      const user = await this.userRepo.findOne({ where: { id: userId } });
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      const queryBuilder = this.postRepo
+        .createQueryBuilder('post')
+        .leftJoinAndSelect('post.user', 'user')
+        .where('post.userId = :userId', { userId })
+        .andWhere('post.status = :status', { status: PostStatus.PUBLISHED });
+
+      if (viewerId !== userId) {
+        queryBuilder.andWhere('post.isPublic = :isPublic', { isPublic: true });
+      }
+
+      const [posts, total] = await queryBuilder
+        .orderBy('post.createdAt', 'DESC')
+        .skip(skip)
+        .take(limit)
+        .getManyAndCount();
+
+      return {
+        message: 'User posts retrieved successfully',
+        data: {
+          posts: posts.map((post) => this.formatPostResponse(post)),
+          user: user.toPublicProfile(),
+          pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(total / limit),
+          },
+        },
+      };
+    } catch (err) {
+      if (err instanceof NotFoundException) {
+        throw err;
+      }
+      console.error('Failed to get user posts:', err);
+      throw new InternalServerErrorException('Failed to retrieve user posts');
     }
-
-    const queryBuilder = this.postRepo
-      .createQueryBuilder('post')
-      .leftJoinAndSelect('post.user', 'user')
-      .where('post.userId = :userId', { userId })
-      .andWhere('post.status = :status', { status: PostStatus.PUBLISHED });
-
-    if (viewerId !== userId) {
-      queryBuilder.andWhere('post.isPublic = :isPublic', { isPublic: true });
-    }
-
-    const [posts, total] = await queryBuilder
-      .orderBy('post.createdAt', 'DESC')
-      .skip(skip)
-      .take(limit)
-      .getManyAndCount();
-
-    return {
-      posts: posts.map((post) => this.formatPostResponse(post)),
-      user: user.toPublicProfile(),
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
   }
 
   async update(
@@ -440,23 +737,23 @@ export class PostService {
     userId: string,
     dto: UpdatePostDto,
     file?: Express.Multer.File,
-  ): Promise<PostResponse> {
-    const post = await this.postRepo.findOne({
-      where: { id },
-      relations: ['user'],
-    });
-
-    if (!post) {
-      throw new NotFoundException('Post not found');
-    }
-
-    if (post.user.id !== userId) {
-      throw new ForbiddenException(
-        'You are not authorized to update this post',
-      );
-    }
-
+  ): Promise<ServiceResponse<PostResponse>> {
     try {
+      const post = await this.postRepo.findOne({
+        where: { id },
+        relations: ['user'],
+      });
+
+      if (!post) {
+        throw new NotFoundException('Post not found');
+      }
+
+      if (post.user.id !== userId) {
+        throw new ForbiddenException(
+          'You are not authorized to update this post',
+        );
+      }
+
       const updateData: Partial<Post> = { ...dto };
 
       if (file) {
@@ -469,63 +766,105 @@ export class PostService {
       }
 
       await this.postRepo.update(id, updateData);
-      return this.getPostById(id, userId);
+      const updatedPost = await this.getPostById(id, userId);
+
+      return {
+        message: 'Post updated successfully',
+        data: updatedPost.data,
+      };
     } catch (err) {
+      if (
+        err instanceof NotFoundException ||
+        err instanceof ForbiddenException
+      ) {
+        throw err;
+      }
+      console.error('Failed to update post:', err);
       throw new InternalServerErrorException('Failed to update post');
     }
   }
 
-  async delete(id: string, userId: string): Promise<void> {
-    const post = await this.postRepo.findOne({
-      where: { id, userId },
-    });
-
-    if (!post) {
-      throw new NotFoundException('Post not found or unauthorized');
-    }
-
+  async delete(id: string, userId: string): Promise<ServiceResponse<null>> {
     try {
+      const post = await this.postRepo.findOne({
+        where: { id, userId },
+      });
+
+      if (!post) {
+        throw new NotFoundException('Post not found or unauthorized');
+      }
+
       await this.postRepo.delete(id);
       await this.userRepo.decrement({ id: userId }, 'postsCount', 1);
+
+      return {
+        message: 'Post deleted successfully',
+        data: null,
+      };
     } catch (err) {
+      if (err instanceof NotFoundException) {
+        throw err;
+      }
+      console.error('Failed to delete post:', err);
       throw new InternalServerErrorException('Failed to delete post');
     }
   }
 
-  async toggleLike(postId: string, userId: string) {
-    const post = await this.postRepo.findOne({ where: { id: postId } });
-    if (!post) {
-      throw new NotFoundException('Post not found');
-    }
+  async toggleLike(
+    postId: string,
+    userId: string,
+  ): Promise<
+    ServiceResponse<{
+      liked: boolean;
+      likesCount: number;
+    }>
+  > {
+    try {
+      const post = await this.postRepo.findOne({ where: { id: postId } });
+      if (!post) {
+        throw new NotFoundException('Post not found');
+      }
 
-    const existingLike = await this.likeRepo.findOne({
-      where: { postId, userId },
-    });
+      const existingLike = await this.likeRepo.findOne({
+        where: { postId, userId },
+      });
 
-    if (existingLike) {
-      await this.likeRepo.delete({ postId, userId });
-      await this.postRepo.decrement({ id: postId }, 'likesCount', 1);
+      if (existingLike) {
+        await this.likeRepo.delete({ postId, userId });
+        await this.postRepo.decrement({ id: postId }, 'likesCount', 1);
 
-      return {
-        liked: false,
-        likesCount: post.likesCount - 1,
-      };
-    } else {
-      const like = this.likeRepo.create({ postId, userId });
-      await this.likeRepo.save(like);
-      await this.postRepo.increment({ id: postId }, 'likesCount', 1);
+        return {
+          message: 'Post unliked successfully',
+          data: {
+            liked: false,
+            likesCount: Math.max(0, post.likesCount - 1),
+          },
+        };
+      } else {
+        const like = this.likeRepo.create({ postId, userId });
+        await this.likeRepo.save(like);
+        await this.postRepo.increment({ id: postId }, 'likesCount', 1);
 
-      return {
-        liked: true,
-        likesCount: post.likesCount + 1,
-      };
+        return {
+          message: 'Post liked successfully',
+          data: {
+            liked: true,
+            likesCount: post.likesCount + 1,
+          },
+        };
+      }
+    } catch (err) {
+      if (err instanceof NotFoundException) {
+        throw err;
+      }
+      console.error('Failed to toggle like:', err);
+      throw new InternalServerErrorException('Failed to toggle like');
     }
   }
 
   private formatPostResponse(post: Post): PostResponse {
     return {
       id: post.id,
-
       videoUrlHigh: post.videoUrlHigh,
       thumbnailUrl: post.thumbnailUrl,
       videoDuration: post.videoDuration,

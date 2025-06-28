@@ -58,8 +58,8 @@ export class PostController {
 
     return {
       success: true,
-      message: 'Video uploaded successfully',
-      data: uploadResult,
+      message: uploadResult.message,
+      data: uploadResult.data,
     };
   }
 
@@ -76,8 +76,8 @@ export class PostController {
 
     return {
       success: true,
-      message: 'Post created successfully',
-      data: post,
+      message: post.message,
+      data: post.data,
     };
   }
 
@@ -99,8 +99,8 @@ export class PostController {
 
     return {
       success: true,
-      message: 'Post created successfully',
-      data: post,
+      message: post.message,
+      data: post.data,
     };
   }
 
@@ -112,11 +112,11 @@ export class PostController {
     @Req() req: Request,
   ) {
     const user = req.user;
-    await this.postService.discardUploadedVideo(tempId, user.id);
+    const result = await this.postService.discardUploadedVideo(tempId, user.id);
 
     return {
       success: true,
-      message: 'Video discarded successfully',
+      message: result.message,
     };
   }
 
@@ -138,7 +138,52 @@ export class PostController {
 
     return {
       success: true,
-      data: posts,
+      message: posts.message,
+      data: posts.data,
+    };
+  }
+
+  // NEW: For You Feed - Personalized algorithm-based feed
+  @UseGuards(JwtAuthGuard)
+  @Get('for-you')
+  async getForYouFeed(
+    @Query('page', new ParseIntPipe({ optional: true })) page: number = 1,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 10,
+    @Req() req: Request,
+  ) {
+    const user = req.user;
+    if (!user || !user.id) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+
+    const posts = await this.postService.getForYouFeed(user.id, page, limit);
+
+    return {
+      success: true,
+      message: posts.message,
+      data: posts.data,
+    };
+  }
+
+  // NEW: Following Feed - Posts from users you follow
+  @UseGuards(JwtAuthGuard)
+  @Get('following')
+  async getFollowingFeed(
+    @Query('page', new ParseIntPipe({ optional: true })) page: number = 1,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 10,
+    @Req() req: Request,
+  ) {
+    const user = req.user;
+    if (!user || !user.id) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+
+    const posts = await this.postService.getFollowingFeed(user.id, page, limit);
+
+    return {
+      success: true,
+      message: posts.message,
+      data: posts.data,
     };
   }
 
@@ -150,7 +195,8 @@ export class PostController {
 
     return {
       success: true,
-      data: post,
+      message: post.message,
+      data: post.data,
     };
   }
 
@@ -169,8 +215,8 @@ export class PostController {
 
     return {
       success: true,
-      message: 'Post updated successfully',
-      data: post,
+      message: post.message,
+      data: post.data,
     };
   }
 
@@ -182,11 +228,11 @@ export class PostController {
     @Req() req: Request,
   ) {
     const user = req.user;
-    await this.postService.delete(id, user.id);
+    const result = await this.postService.delete(id, user.id);
 
     return {
       success: true,
-      message: 'Post deleted successfully',
+      message: result.message,
     };
   }
 
@@ -205,10 +251,10 @@ export class PostController {
 
     return {
       success: true,
-      message: result.liked ? 'Post liked' : 'Post unliked',
+      message: result.message,
       data: {
-        liked: result.liked,
-        likesCount: result.likesCount,
+        liked: result.data.liked,
+        likesCount: result.data.likesCount,
       },
     };
   }
@@ -237,7 +283,8 @@ export class UserPostsController {
 
     return {
       success: true,
-      data: posts,
+      message: posts.message,
+      data: posts.data,
     };
   }
 }
